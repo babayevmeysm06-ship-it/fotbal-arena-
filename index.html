@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Futbol Arena | Azərbaycan</title>
+    <!-- CSS və İkonlar -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- React və Firebase Kitabxanaları -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background-color: #f3f4f6; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .active-scale:active { transform: scale(0.95); transition: 0.1s; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Firebase və App Məntiqi
+        const App = () => {
+            const [view, setView] = useState('feed');
+            const [posts, setPosts] = useState([
+                {
+                    id: 1,
+                    author: "Elvin Məmmədov",
+                    content: "Futbol Arena artıq canlıdadır! 🇦🇿⚽ Hamını salamlayıram.",
+                    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Elvin",
+                    likes: "12.4k",
+                    verified: true
+                },
+                {
+                    id: 2,
+                    author: "Futbol Sevər",
+                    content: "Yeni profilim necədir? Tezliklə yeni videolar gələcək.",
+                    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
+                    likes: "850",
+                    verified: false
+                }
+            ]);
+
+            const [user] = useState({
+                name: "Elvin Məmmədov",
+                username: "@elvin_football",
+                followers: "111k",
+                following: "85",
+                bio: "Futbol mənim həyatımdır! ⚽️🇦🇿 Arena-da paylaşım etməyi unutmayın.",
+                avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Elvin",
+                verified: true
+            });
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-white shadow-2xl pb-24 relative">
+                    {/* Header */}
+                    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b p-4 flex justify-between items-center">
+                        <h1 className="text-2xl font-black italic text-green-600 tracking-tighter select-none">ARENA</h1>
+                        <div className="flex gap-4 text-gray-400">
+                            <i className="fas fa-search text-lg cursor-pointer hover:text-green-600 transition-colors"></i>
+                            <i className="fas fa-bell text-lg cursor-pointer hover:text-green-600 transition-colors"></i>
+                        </div>
+                    </header>
+
+                    {view === 'feed' ? (
+                        /* Feed Səhifəsi */
+                        <div className="p-4 space-y-6 animate-in fade-in duration-500">
+                            {/* Storylar */}
+                            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+                                <div className="flex-shrink-0 text-center">
+                                    <div className="w-16 h-16 rounded-full border-2 border-green-500 p-0.5 mb-1">
+                                        <img src={user.avatar} className="w-full h-full rounded-full bg-gray-100" />
+                                    </div>
+                                    <p className="text-[10px] font-bold text-gray-500">Sənin Story</p>
+                                </div>
+                                {[1,2,3,4].map(i => (
+                                    <div key={i} className="flex-shrink-0 text-center opacity-60">
+                                        <div className="w-16 h-16 rounded-full border-2 border-gray-200 p-0.5 mb-1">
+                                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${i+10}`} className="w-full h-full rounded-full bg-gray-50" />
+                                        </div>
+                                        <p className="text-[10px] font-bold text-gray-400 italic">Futbolçu {i}</p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Postlar */}
+                            {posts.map(post => (
+                                <div key={post.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                                    <div className="p-4 flex items-center gap-3">
+                                        <img src={post.avatar} className="w-10 h-10 rounded-full border shadow-sm" />
+                                        <div>
+                                            <div className="flex items-center gap-1">
+                                                <span className="font-bold text-sm">{post.author}</span>
+                                                {post.verified && <i className="fas fa-check-circle text-blue-500 text-[10px]"></i>}
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase">İndi</p>
+                                        </div>
+                                    </div>
+                                    <div className="px-4 pb-3 text-sm text-gray-700 leading-relaxed font-medium">
+                                        {post.content}
+                                    </div>
+                                    {post.id === 1 && (
+                                        <div className="w-full h-64 bg-gray-100">
+                                            <img src="https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800" className="w-full h-full object-cover" />
+                                        </div>
+                                    )}
+                                    <div className="p-4 flex justify-between items-center text-gray-400 border-t border-gray-50 mt-2">
+                                        <div className="flex gap-6">
+                                            <div className="flex items-center gap-1 active-scale cursor-pointer group">
+                                                <i className="far fa-heart text-xl group-hover:text-red-500 transition-colors"></i> 
+                                                <span className="text-xs font-bold">{post.likes}</span>
+                                            </div>
+                                            <i className="far fa-comment text-xl hover:text-blue-500 transition-colors cursor-pointer"></i>
+                                        </div>
+                                        <i className="far fa-paper-plane text-xl hover:text-green-500 transition-colors cursor-pointer"></i>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        /* Profil Səhifəsi */
+                        <div className="animate-in slide-in-from-bottom-4 duration-500">
+                            <div className="relative h-32 bg-green-600">
+                                <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
+                                    <div className="relative">
+                                        <img src={user.avatar} className="w-28 h-28 rounded-full border-4 border-white shadow-2xl bg-white" />
+                                        <i className="fas fa-check-circle absolute bottom-1 right-1 text-blue-500 bg-white rounded-full text-2xl border-2 border-white"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-16 text-center px-6">
+                                <h2 className="text-2xl font-black uppercase italic tracking-tighter text-gray-800">{user.name}</h2>
+                                <p className="text-gray-400 text-xs font-black tracking-[0.2em]">{user.username}</p>
+                                <p className="mt-4 text-sm text-gray-600 px-6 leading-relaxed font-medium">"{user.bio}"</p>
+                                
+                                <div className="flex justify-center gap-10 mt-8 bg-gray-50 p-6 rounded-[2.5rem] border border-gray-100 shadow-inner">
+                                    <div className="text-center">
+                                        <p className="font-black text-2xl text-green-600">{user.followers}</p>
+                                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">İzləyici</p>
+                                    </div>
+                                    <div className="w-px bg-gray-200 h-10 my-auto"></div>
+                                    <div className="text-center">
+                                        <p className="font-black text-2xl text-gray-800">{user.following}</p>
+                                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">İzlənilən</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 mt-8 pb-10">
+                                    {[1,2,3,4,5,6].map(i => (
+                                        <div key={i} className="aspect-square bg-gray-100 rounded-2xl overflow-hidden shadow-inner hover:scale-105 transition-transform duration-300">
+                                            <img src={`https://picsum.photos/seed/${i+50}/300/300`} className="w-full h-full object-cover opacity-90" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Nav Bar */}
+                    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 backdrop-blur-xl border-t px-10 py-5 flex justify-around items-center rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50">
+                        <button onClick={() => setView('feed')} className={`text-2xl active-scale transition-all ${view === 'feed' ? 'text-green-600 scale-125' : 'text-gray-300'}`}>
+                            <i className="fas fa-home"></i>
+                        </button>
+                        <button className="bg-green-600 w-14 h-14 rounded-2xl text-white shadow-2xl shadow-green-200 flex items-center justify-center -mt-16 border-4 border-white active-scale transition-all">
+                            <i className="fas fa-plus text-xl"></i>
+                        </button>
+                        <button onClick={() => setView('profile')} className={`text-2xl active-scale transition-all ${view === 'profile' ? 'text-green-600 scale-125' : 'text-gray-300'}`}>
+                            <i className="fas fa-user"></i>
+                        </button>
+                    </nav>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
