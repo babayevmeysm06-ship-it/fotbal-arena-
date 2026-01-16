@@ -14,11 +14,12 @@ import {
   getDoc, 
   onSnapshot, 
   addDoc, 
-  serverTimestamp,
   query,
   updateDoc,
   arrayUnion,
-  increment
+  increment,
+  getDocs,
+  where
 } from 'firebase/firestore';
 import { 
   Heart, 
@@ -31,33 +32,41 @@ import {
   BadgeCheck, 
   X, 
   Image as ImageIcon, 
-  Settings, 
   Send,
-  Hash,
-  History,
-  MoreHorizontal,
-  Bookmark
+  Bookmark,
+  Mail,
+  Share2,
+  ChevronLeft,
+  UserPlus
 } from 'lucide-react';
 
 const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'football-arena-pro-v2';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'football-arena-pro-final';
 
 const App = () => {
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('feed');
+  const [activeTab, setActiveTab] = useState('feed'); 
   const [posts, setPosts] = useState([]);
   const [stories, setStories] = useState([]);
   const [profileData, setProfileData] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newPostContent, setNewPostContent] = useState("");
   const [selectedImage, setSelectedImage] = useState(null);
-  const [activeComments, setActiveComments] = useState(null);
-  const [commentText, setCommentText] = useState("");
+  const [activeChat, setActiveChat] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [msgInput, setMsgInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedStory, setSelectedStory] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [commentingPostId, setCommentingPostId] = useState(null);
+  const [commentInput, setCommentInput] = useState("");
+  
   const fileInputRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -68,268 +77,298 @@ const App = () => {
       }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!user) return;
     const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'info');
-    const fetchProfile = async () => {
-      const docSnap = await getDoc(profileRef);
+    const unsubProfile = onSnapshot(profileRef, (docSnap) => {
       if (docSnap.exists()) {
         setProfileData(docSnap.data());
       } else {
         const initialData = {
-          name: "Azarkeş",
-          username: `user_${user.uid.substring(0, 5)}`,
-          followers: 111000,
-          following: 85,
-          bio: "Futbol mənim həyatımdır! ⚽",
+          uid: user.uid,
+          name: "Futbolçu",
+          username: `arena_${user.uid.substring(0, 5)}`,
+          followersCount: 111000,
+          followingCount: 88,
+          bio: "Arena-da yeni bir ulduz! ⚽",
           avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
           isVerified: true
         };
-        await setDoc(profileRef, initialData);
-        setProfileData(initialData);
+        setDoc(profileRef, initialData);
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_users', user.uid), initialData);
       }
-    };
-    fetchProfile();
+    });
+    return () => unsubProfile();
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
     const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
     const unsubPosts = onSnapshot(query(postsRef), (snapshot) => {
-      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.createdAt - a.createdAt));
+      const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPosts(pList.sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0)));
     });
+
     const storiesRef = collection(db, 'artifacts', appId, 'public', 'data', 'stories');
     const unsubStories = onSnapshot(query(storiesRef), (snapshot) => {
       setStories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
     return () => { unsubPosts(); unsubStories(); };
   }, [user]);
 
+  useEffect(() => {
+    if (!user || !activeChat) return;
+    const chatId = [user.uid, activeChat.uid].sort().join('_');
+    const msgRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatId, 'messages');
+    const unsubMsgs = onSnapshot(query(msgRef), (snap) => {
+      const mList = snap.docs.map(d => d.data()).sort((a,b) => a.timestamp - b.timestamp);
+      setMessages(mList);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    });
+    return () => unsubMsgs();
+  }, [user, activeChat]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'all_users');
+      const snap = await getDocs(usersRef);
+      const results = snap.docs
+        .map(d => d.data())
+        .filter(u => 
+          u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+          u.username.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      setSearchResults(results);
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
   const handleCreatePost = async () => {
-    if (!newPostContent.trim() && !selectedImage) return;
-    const postID = Math.floor(100000 + Math.random() * 900000);
+    if (!user || (!newPostContent.trim() && !selectedImage)) return;
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'), {
       uid: user.uid,
       userName: profileData.name,
       userAvatar: profileData.avatar,
       content: newPostContent,
       image: selectedImage,
-      postID: `#${postID}`,
+      postID: `#${Math.floor(Math.random()*900000)}`,
       likes: 0,
       comments: [],
       createdAt: Date.now(),
       verified: profileData.isVerified
     });
-    setNewPostContent("");
-    setSelectedImage(null);
-    setIsModalOpen(false);
+    setNewPostContent(""); setSelectedImage(null); setIsModalOpen(false);
   };
 
-  const handleLike = async (id) => {
-    const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
-    await updateDoc(postRef, { likes: increment(1) });
+  const sendMessage = async () => {
+    if (!user || !activeChat || !msgInput.trim()) return;
+    const chatId = [user.uid, activeChat.uid].sort().join('_');
+    const msgRef = collection(db, 'artifacts', appId, 'public', 'data', 'chats', chatId, 'messages');
+    await addDoc(msgRef, { senderId: user.uid, text: msgInput, timestamp: Date.now() });
+    setMsgInput("");
   };
 
-  const handleAddComment = async (id) => {
-    if (!commentText.trim()) return;
-    const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
+  const toggleLike = async (post) => {
+    if (!user) return;
+    const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', post.id);
+    await updateDoc(postRef, {
+      likes: (post.likes || 0) + 1
+    });
+  };
+
+  const addComment = async (postId) => {
+    if (!user || !commentInput.trim()) return;
+    const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', postId);
     await updateDoc(postRef, {
       comments: arrayUnion({
-        text: commentText,
-        author: profileData.name,
-        createdAt: Date.now()
+        uid: user.uid,
+        userName: profileData.name,
+        text: commentInput,
+        timestamp: Date.now()
       })
     });
-    setCommentText("");
+    setCommentInput("");
+    setCommentingPostId(null);
   };
 
-  const shareToStory = async (post) => {
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), {
-      userName: post.userName,
-      avatar: post.userAvatar,
-      content: post.content,
-      postID: post.postID,
-      createdAt: Date.now()
-    });
-    alert("Post story-də paylaşıldı!");
-  };
-
-  if (!user || !profileData) return <div className="h-screen flex items-center justify-center bg-white text-green-600 font-bold animate-pulse">Instagram Loading...</div>;
+  if (!user || !profileData) return <div className="h-screen flex flex-col items-center justify-center bg-white"><div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div><p className="font-bold text-green-600">ARENA</p></div>;
 
   return (
-    <div className="min-h-screen bg-white text-[#262626] max-w-xl mx-auto pb-20 shadow-xl font-sans">
-      {/* Instagram Style Header */}
-      <nav className="sticky top-0 z-40 bg-white border-b px-4 py-3 flex justify-between items-center">
-        <h1 className="text-2xl font-serif font-bold italic text-black tracking-tight">Arena</h1>
-        <div className="flex gap-5 items-center">
-          <PlusSquare onClick={() => setIsModalOpen(true)} className="w-6 h-6 cursor-pointer" />
-          <Heart className="w-6 h-6" />
-          <Send className="w-6 h-6" />
+    <div className="min-h-screen bg-white text-black max-w-xl mx-auto pb-20 font-sans">
+      
+      {/* Notifications Panel */}
+      {showNotifications && (
+        <div className="fixed inset-0 z-[60] bg-black/20" onClick={() => setShowNotifications(false)}>
+          <div className="absolute top-16 right-4 w-72 bg-white rounded-2xl shadow-2xl p-4 border animate-in slide-in-from-top-2" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold border-b pb-2 mb-2 text-sm">Bildirişlər</h3>
+            <div className="space-y-3">
+               <div className="flex items-center gap-3 text-xs p-2 hover:bg-gray-50 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white">⚽</div>
+                  <p><b>Arena</b> komandası sizi salamlayır!</p>
+               </div>
+               <div className="flex items-center gap-3 text-xs p-2 hover:bg-gray-50 rounded-lg">
+                  <BadgeCheck className="w-8 h-8 text-blue-500" />
+                  <p>Profiliniz təsdiqləndi!</p>
+               </div>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Header */}
+      <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b px-4 py-3 flex justify-between items-center">
+        {activeChat ? (
+          <div className="flex items-center gap-3">
+            <ChevronLeft onClick={() => setActiveChat(null)} className="w-6 h-6 cursor-pointer" />
+            <img src={activeChat.avatar} className="w-8 h-8 rounded-full border" />
+            <span className="font-bold text-sm">{activeChat.name}</span>
+          </div>
+        ) : (
+          <>
+            <h1 className="text-2xl font-black italic tracking-tighter">ARENA</h1>
+            <div className="flex gap-4">
+              <PlusSquare onClick={() => setIsModalOpen(true)} className="w-6 h-6 cursor-pointer hover:text-green-600 transition-colors" />
+              <Mail onClick={() => setActiveTab('messages')} className={`w-6 h-6 cursor-pointer ${activeTab === 'messages' ? 'text-green-600' : ''}`} />
+            </div>
+          </>
+        )}
       </nav>
 
       <main>
-        {activeTab === 'feed' ? (
-          <>
-            {/* Instagram Style Stories */}
-            <div className="flex gap-4 overflow-x-auto no-scrollbar p-4 border-b">
-              <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                <div className="relative p-[2px] rounded-full bg-gray-200">
-                  <div className="w-16 h-16 rounded-full border-2 border-white overflow-hidden">
-                    <img src={profileData.avatar} className="w-full h-full bg-gray-100" />
-                  </div>
-                  <div className="absolute bottom-0 right-0 bg-blue-500 rounded-full p-1 border-2 border-white">
-                    <PlusSquare className="w-3 h-3 text-white fill-current" />
+        {activeChat ? (
+          /* Chat Interface */
+          <div className="flex flex-col h-[calc(100vh-120px)] bg-gray-50">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {messages.map((m, i) => (
+                <div key={i} className={`flex ${m.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] px-4 py-2 rounded-2xl text-sm ${m.senderId === user.uid ? 'bg-black text-white rounded-tr-none' : 'bg-white border shadow-sm rounded-tl-none'}`}>
+                    {m.text}
                   </div>
                 </div>
-                <p className="text-[11px] text-gray-500">Hekayən</p>
-              </div>
-              {stories.map(story => (
-                <div key={story.id} className="flex-shrink-0 flex flex-col items-center gap-1 animate-in zoom-in">
-                  <div className="p-[2px] rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600">
-                    <div className="w-16 h-16 rounded-full border-2 border-white overflow-hidden bg-white">
-                      <img src={story.avatar} className="w-full h-full" />
-                    </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="p-4 bg-white border-t flex gap-2">
+              <input type="text" className="flex-1 bg-gray-100 rounded-full px-5 py-3 text-sm outline-none" placeholder="Mesajı yazın..." value={msgInput} onChange={(e)=>setMsgInput(e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&sendMessage()} />
+              <button onClick={sendMessage} className="bg-black text-white p-3 rounded-full"><Send className="w-5 h-5" /></button>
+            </div>
+          </div>
+        ) : activeTab === 'search' ? (
+          /* Search Interface */
+          <div className="p-4 animate-in fade-in">
+            <div className="relative mb-6">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" className="w-full bg-gray-100 rounded-2xl py-4 pl-12 pr-4 text-sm outline-none focus:ring-2 ring-black/5" placeholder="Axtarış..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} autoFocus />
+            </div>
+            <div className="space-y-3">
+              {searchResults.map(u => (
+                <div key={u.uid} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <img src={u.avatar} className="w-10 h-10 rounded-full" />
+                    <span className="font-bold text-sm">{u.name}</span>
                   </div>
-                  <p className="text-[11px] truncate w-16 text-center">{story.userName}</p>
+                  <button onClick={()=>setActiveChat(u)} className="p-2 bg-gray-100 rounded-full"><Mail className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : activeTab === 'feed' ? (
+          /* Feed Interface */
+          <>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar p-4 border-b">
+              {stories.map(s => (
+                <div key={s.id} onClick={()=>setSelectedStory(s)} className="flex-shrink-0 text-center cursor-pointer">
+                  <div className="p-[3px] rounded-full bg-gradient-to-tr from-green-400 to-blue-500">
+                    <img src={s.avatar} className="w-16 h-16 rounded-full border-2 border-white bg-white" />
+                  </div>
+                  <p className="text-[10px] font-bold truncate w-16">{s.userName}</p>
                 </div>
               ))}
             </div>
 
-            {/* Posts */}
-            <div className="space-y-4 pt-2">
+            <div className="divide-y">
               {posts.map(post => (
-                <div key={post.id} className="bg-white pb-4 border-b">
-                  {/* Post Header */}
-                  <div className="flex items-center justify-between px-4 py-3">
+                <div key={post.id} className="pt-4 pb-6 bg-white">
+                  <div className="flex items-center justify-between px-4 mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="p-[1.5px] rounded-full bg-gradient-to-tr from-yellow-400 to-purple-600">
-                        <img src={post.userAvatar} className="w-8 h-8 rounded-full border border-white" />
-                      </div>
+                      <img src={post.userAvatar} className="w-10 h-10 rounded-full border" />
                       <div>
-                        <div className="flex items-center gap-1">
-                          <span className="font-bold text-sm">{post.userName}</span>
-                          {post.verified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 fill-current" />}
-                        </div>
-                        <span className="text-[10px] text-gray-400 font-medium">{post.postID}</span>
+                        <p className="font-bold text-sm flex items-center gap-1">{post.userName} {post.verified && <BadgeCheck className="w-3.5 h-3.5 text-blue-500 fill-current" />}</p>
+                        <p className="text-[10px] text-gray-400 tracking-widest">{post.postID}</p>
                       </div>
                     </div>
-                    <MoreHorizontal className="w-5 h-5 text-gray-500" />
                   </div>
-
-                  {/* Post Content */}
-                  <div className="px-4 text-[14px] mb-2">{post.content}</div>
-                  {post.image ? (
-                    <img src={post.image} className="w-full aspect-square object-cover" />
-                  ) : (
-                    <div className="w-full aspect-square bg-gray-50 flex items-center justify-center text-gray-300">
-                      <ImageIcon className="w-12 h-12" />
-                    </div>
-                  )}
-
-                  {/* Interaction Buttons */}
-                  <div className="flex justify-between items-center px-4 py-3">
-                    <div className="flex gap-4">
-                      <Heart 
-                        onClick={() => handleLike(post.id)} 
-                        className={`w-6 h-6 cursor-pointer hover:scale-110 transition-transform ${post.likes > 0 ? 'fill-red-500 text-red-500' : ''}`} 
-                      />
-                      <MessageCircle 
-                        onClick={() => setActiveComments(activeComments === post.id ? null : post.id)} 
-                        className="w-6 h-6 cursor-pointer" 
-                      />
-                      <Send onClick={() => shareToStory(post)} className="w-6 h-6 cursor-pointer" />
-                    </div>
-                    <Bookmark className="w-6 h-6" />
-                  </div>
-
-                  {/* Likes Count */}
-                  <div className="px-4 text-sm font-bold mb-1">
-                    {post.likes.toLocaleString()} bəyənmə
-                  </div>
-
-                  {/* Caption & Comments */}
-                  <div className="px-4 text-sm">
-                    <span className="font-bold mr-2">{post.userName}</span>
-                    <span className="text-gray-800">{post.content.substring(0, 50)}...</span>
+                  <div className="px-4 text-sm mb-3">{post.content}</div>
+                  {post.image && <img src={post.image} className="w-full aspect-square object-cover" />}
+                  
+                  <div className="flex gap-6 px-4 py-4">
+                    <Heart onClick={() => toggleLike(post)} className={`w-6 h-6 cursor-pointer transition-colors ${post.likes > 0 ? 'fill-red-500 text-red-500' : 'text-gray-400'}`} />
+                    <MessageCircle onClick={() => setCommentingPostId(commentingPostId === post.id ? null : post.id)} className={`w-6 h-6 cursor-pointer ${commentingPostId === post.id ? 'text-green-600' : 'text-gray-400'}`} />
+                    <Share2 className="w-6 h-6 ml-auto text-gray-400" />
                   </div>
                   
-                  {post.comments?.length > 0 && (
-                    <div 
-                      onClick={() => setActiveComments(post.id)}
-                      className="px-4 text-sm text-gray-400 mt-1 cursor-pointer"
-                    >
-                      {post.comments.length} rəyin hamısına bax
-                    </div>
-                  )}
+                  <div className="px-4 mb-2">
+                    <p className="text-[13px] font-bold">{(post.likes || 0).toLocaleString()} bəyənmə</p>
+                  </div>
 
-                  {/* Comment Section Input */}
-                  {activeComments === post.id && (
-                    <div className="px-4 mt-3 animate-in slide-in-from-top-2">
-                       <div className="max-h-24 overflow-y-auto mb-2 space-y-1">
-                        {post.comments?.map((c, i) => (
-                          <div key={i} className="text-[13px]"><span className="font-bold">{c.author}</span> {c.text}</div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 items-center border-t pt-2">
-                        <input 
-                          type="text" 
-                          className="flex-1 text-sm outline-none py-1"
-                          placeholder="Rəy əlavə et..."
-                          value={commentText}
-                          onChange={(e) => setCommentText(e.target.value)}
-                        />
-                        <button 
-                          onClick={() => handleAddComment(post.id)} 
-                          className="text-blue-500 font-bold text-sm disabled:opacity-50"
-                          disabled={!commentText.trim()}
-                        > Paylaş </button>
-                      </div>
+                  {/* Comment Section */}
+                  <div className="px-4 space-y-2 mb-3">
+                    {post.comments?.map((c, idx) => (
+                      <p key={idx} className="text-xs">
+                        <span className="font-bold mr-2">{c.userName}</span>
+                        <span className="text-gray-600">{c.text}</span>
+                      </p>
+                    ))}
+                  </div>
+
+                  {commentingPostId === post.id && (
+                    <div className="px-4 flex gap-2 animate-in slide-in-from-top-1">
+                      <input 
+                        type="text" 
+                        className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-xs outline-none" 
+                        placeholder="Şərh yaz..." 
+                        value={commentInput} 
+                        onChange={(e)=>setCommentInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && addComment(post.id)}
+                      />
+                      <button onClick={() => addComment(post.id)} className="text-green-600 font-bold text-xs px-2">Paylaş</button>
                     </div>
                   )}
                 </div>
               ))}
             </div>
           </>
+        ) : activeTab === 'messages' ? (
+          <div className="p-10 text-center text-gray-400">
+             <Mail className="w-12 h-12 mx-auto mb-4 opacity-10" />
+             <p className="text-sm">Mesajlarınız burda görünəcək.</p>
+          </div>
         ) : (
-          /* Instagram Style Profile */
-          <div className="animate-in fade-in duration-500">
-             <div className="px-5 pt-6 flex items-center justify-between">
-                <div className="relative p-1 rounded-full bg-gradient-to-tr from-yellow-400 to-purple-600">
-                  <img src={profileData.avatar} className="w-20 h-20 rounded-full border-2 border-white bg-white" />
-                </div>
-                <div className="flex gap-6 text-center flex-1 ml-4">
-                  <div className="flex-1"><p className="font-bold text-lg">{posts.filter(p=>p.uid===user.uid).length}</p><p className="text-xs">Postlar</p></div>
-                  <div className="flex-1"><p className="font-bold text-lg">111k</p><p className="text-xs">İzləyici</p></div>
-                  <div className="flex-1"><p className="font-bold text-lg">85</p><p className="text-xs">İzlənilən</p></div>
+          /* Profile Interface */
+          <div className="p-6">
+             <div className="flex items-start justify-between mb-8">
+                <img src={profileData.avatar} className="w-24 h-24 rounded-full border shadow-lg" />
+                <div className="flex gap-6 mt-4">
+                   <div className="text-center"><p className="font-black text-xl">{posts.filter(p=>p.uid===user.uid).length}</p><p className="text-[10px] text-gray-400 font-bold">POSTLAR</p></div>
+                   <div className="text-center"><p className="font-black text-xl">111K</p><p className="text-[10px] text-gray-400 font-bold">İZLƏYİCİ</p></div>
+                   <div className="text-center"><p className="font-black text-xl">{profileData.followingCount || 88}</p><p className="text-[10px] text-gray-400 font-bold">İZLƏNƏN</p></div>
                 </div>
              </div>
-             
-             <div className="px-5 mt-4">
-                <h2 className="font-bold text-sm flex items-center gap-1">
-                  {profileData.name} {profileData.isVerified && <BadgeCheck className="w-3 h-3 text-blue-500 fill-current" />}
-                </h2>
-                <p className="text-gray-500 text-sm italic">⚽ {profileData.bio}</p>
-             </div>
-
-             <div className="px-5 mt-6 flex gap-2">
-                <button className="flex-1 bg-gray-100 py-1.5 rounded-lg font-bold text-sm">Profili düzəlt</button>
-                <button className="flex-1 bg-gray-100 py-1.5 rounded-lg font-bold text-sm">Profili paylaş</button>
-             </div>
-
-             {/* Grid of Posts */}
-             <div className="mt-8 grid grid-cols-3 gap-1">
-                {posts.filter(p => p.uid === user.uid).map(post => (
-                  <div key={post.id} className="aspect-square bg-gray-100 relative group overflow-hidden">
-                    {post.image ? (
-                      <img src={post.image} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="w-6 h-6"/></div>
-                    )}
+             <h2 className="font-black text-xl">{profileData.name}</h2>
+             <p className="text-sm text-gray-500 italic mb-6">{profileData.bio}</p>
+             <div className="grid grid-cols-3 gap-1">
+                {posts.filter(p=>p.uid===user.uid).map(p=>(
+                  <div key={p.id} className="aspect-square bg-gray-100 overflow-hidden">
+                    {p.image && <img src={p.image} className="w-full h-full object-cover" />}
                   </div>
                 ))}
              </div>
@@ -337,55 +376,58 @@ const App = () => {
         )}
       </main>
 
-      {/* Instagram Style Nav Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-xl mx-auto bg-white border-t py-3 px-6 flex justify-between items-center z-50">
-        <Home onClick={() => setActiveTab('feed')} className={`w-7 h-7 cursor-pointer ${activeTab === 'feed' ? 'fill-black' : 'text-gray-400'}`} />
-        <Search className="w-7 h-7 text-gray-400" />
-        <PlusSquare onClick={() => setIsModalOpen(true)} className="w-7 h-7 text-gray-400" />
-        <History className="w-7 h-7 text-gray-400" />
-        <div 
-          onClick={() => setActiveTab('profile')} 
-          className={`w-7 h-7 rounded-full border-2 cursor-pointer transition-all ${activeTab === 'profile' ? 'border-black' : 'border-transparent'}`}
-        >
-          <img src={profileData.avatar} className="rounded-full w-full h-full bg-gray-100" />
-        </div>
-      </nav>
-
-      {/* Create Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-sm rounded-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h2 className="font-bold">Yeni paylaşım</h2>
-              <X onClick={() => setIsModalOpen(false)} className="cursor-pointer w-5 h-5 text-gray-400" />
-            </div>
-            <div className="p-4 space-y-4">
-              <textarea 
-                className="w-full h-24 text-sm outline-none resize-none placeholder:text-gray-300"
-                placeholder="Bir başlıq yaz..."
-                value={newPostContent}
-                onChange={(e) => setNewPostContent(e.target.value)}
-              />
-              {selectedImage && <img src={selectedImage} className="w-full aspect-square object-cover rounded-lg border" />}
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => fileInputRef.current.click()} 
-                  className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
-                >
-                  <ImageIcon className="w-4 h-4" /> Foto
-                </button>
-                <input type="file" ref={fileInputRef} onChange={(e) => {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => setSelectedImage(ev.target.result);
-                  reader.readAsDataURL(e.target.files[0]);
-                }} className="hidden" />
-                <button 
-                  onClick={handleCreatePost} 
-                  className="flex-1 bg-blue-500 text-white py-3 rounded-xl font-bold text-xs shadow-lg shadow-blue-100"
-                > Paylaş </button>
+      {/* Story View */}
+      {selectedStory && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col" onClick={()=>setSelectedStory(null)}>
+           <div className="absolute top-10 left-6 right-6 flex items-center justify-between text-white z-10">
+              <div className="flex items-center gap-3">
+                 <img src={selectedStory.avatar} className="w-10 h-10 rounded-full border-2 border-white" />
+                 <span className="font-bold text-sm">{selectedStory.userName}</span>
               </div>
-            </div>
+              <X className="w-8 h-8 cursor-pointer" />
+           </div>
+           <img src={selectedStory.image || selectedStory.avatar} className="w-full h-full object-contain" />
+        </div>
+      )}
+
+      {/* Navigation Footer */}
+      {!activeChat && (
+        <nav className="fixed bottom-0 left-0 right-0 max-w-xl mx-auto bg-white border-t px-8 py-4 flex justify-between items-center z-40 shadow-xl">
+          <Home onClick={()=>setActiveTab('feed')} className={`w-7 h-7 cursor-pointer ${activeTab==='feed'?'text-black':'text-gray-300'}`} />
+          <Search onClick={()=>setActiveTab('search')} className={`w-7 h-7 cursor-pointer ${activeTab==='search'?'text-black':'text-gray-300'}`} />
+          <div onClick={()=>setIsModalOpen(true)} className="bg-black text-white p-2 rounded-xl active:scale-95 transition-transform"><PlusSquare className="w-6 h-6" /></div>
+          <Bell onClick={()=>setShowNotifications(!showNotifications)} className={`w-7 h-7 cursor-pointer transition-colors ${showNotifications ? 'text-blue-500' : 'text-gray-300'}`} />
+          <div onClick={()=>setActiveTab('profile')} className={`w-8 h-8 rounded-full border-2 p-[2px] cursor-pointer ${activeTab==='profile'?'border-black':'border-transparent opacity-50'}`}>
+            <img src={profileData.avatar} className="w-full h-full rounded-full" />
           </div>
+        </nav>
+      )}
+
+      {/* Post Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-md">
+           <div className="bg-white w-full max-w-sm rounded-3xl overflow-hidden animate-in zoom-in-95">
+              <div className="p-6 border-b flex justify-between items-center">
+                 <h2 className="font-black italic">PAYLAŞ</h2>
+                 <X onClick={()=>setIsModalOpen(false)} className="text-gray-300 cursor-pointer" />
+              </div>
+              <div className="p-6">
+                 <textarea className="w-full h-32 bg-gray-50 rounded-2xl p-4 text-sm outline-none resize-none mb-4" placeholder="Nə baş verir? ⚽" value={newPostContent} onChange={(e)=>setNewPostContent(e.target.value)} />
+                 {selectedImage && <img src={selectedImage} className="w-full aspect-video object-cover rounded-xl mb-4" />}
+                 <div className="flex gap-2">
+                    <button onClick={()=>fileInputRef.current.click()} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold text-xs uppercase">FOTO</button>
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e)=>{
+                       const f = e.target.files[0];
+                       if(f) {
+                         const r = new FileReader();
+                         r.onload = (ev) => setSelectedImage(ev.target.result);
+                         r.readAsDataURL(f);
+                       }
+                    }} />
+                    <button onClick={handleCreatePost} className="flex-1 py-4 bg-black text-white rounded-2xl font-bold text-xs uppercase">PAYLAŞ</button>
+                 </div>
+              </div>
+           </div>
         </div>
       )}
     </div>
